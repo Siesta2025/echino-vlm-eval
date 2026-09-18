@@ -1,2 +1,13 @@
 proposal.md
 outputs/
+data/raw/
+.env
+.env.*
+!.env.example
+__pycache__/
+AGENTS.md
+Log.md
+research/
+data/
+.venv/
+.pytest_cache/
