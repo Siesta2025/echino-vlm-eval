@@ -1,5 +1,3 @@
-"""Parse model answers independently of API calls and evaluation."""
-
 import json
 
 

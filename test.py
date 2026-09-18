@@ -28,22 +28,19 @@ def image_to_data_url(image_path: Path) -> str:
 def build_request(prompt: str, image_data_url: str, model: str) -> dict:
     return {
         "model": model,
-        "input": [
+        "messages": [
             {
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": prompt},
+                    {"type": "text", "text": prompt},
                     {
-                        "type": "input_image",
-                        "image_url": image_data_url,
-                        "detail": "high",
+                        "type": "image_url",
+                        "image_url": {"url": image_data_url},
                     }
                 ]
             }
         ],
-        "reasoning": {"effort": "low"},
-        "max_output_tokens": 2048,
-        "store": False,
+        "stream": False,
     }
 
 def main(dry_run: bool = True):
@@ -72,14 +69,14 @@ def main(dry_run: bool = True):
     Do not include Markdown fences or additional text.
     """
 
-    request = build_request(prompt, image_data_url, model="openai/gpt-6-astra")
-    print(f"Request constructed: model={request['model']}; image detail=high")
+    request = build_request(prompt, image_data_url, model="gpt-6-astra")
+    print(f"Request constructed: model={request['model']}; protocol=Chat Completions")
 
     # 3. feed into model API
     if not dry_run:
-        api_key = getpass("Enter your OpenRouter API key: ")
+        api_key = getpass("Enter your ModelBest API key: ")
         client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
+            base_url="https://llm-center.modelbest.co/v1",
             timeout=30,
             max_retries=0,
             api_key=api_key
@@ -87,17 +84,22 @@ def main(dry_run: bool = True):
 
         start = perf_counter()
 
-        response = client.responses.create(**request)
+        response = client.chat.completions.create(**request)
         elapsed = perf_counter() - start
-        result = parse_prediction(response.output_text)
+        choice = response.choices[0]
+        if choice.message.refusal:
+            result = {"status": "refusal", "prediction": None}
+        elif choice.finish_reason != "stop":
+            result = {"status": "incomplete", "prediction": None}
+        else:
+            result = parse_prediction(choice.message.content or "")
 
         # 4. grab the output and display it
-        print(response.output_text)
+        print(choice.message.content)
         print(result)
         print(response.usage)
         print(f"Elapsed time: {elapsed:.2f} seconds")
-        print("Status:", response.status)
-        print("Incomplete details", response.incomplete_details)
+        print("Finish reason:", choice.finish_reason)
 
 # Offline tests use synthetic answers and never call a model API.
 @pytest.mark.parametrize("label", ["positive", "negative", "indeterminate"])
@@ -128,25 +130,31 @@ def test_provider_infer(monkeypatch, image_data_url):
     def fake_create(**request):
         requests.append(request)
         return SimpleNamespace(
-            output_text='{"prediction": "indeterminate"}',
-            usage=None, status="completed", incomplete_details=None,
-            error=None, id="mock-response", model="mock-model", output=[],
+            choices=[SimpleNamespace(
+                finish_reason="stop", message=SimpleNamespace(
+                    content='{"prediction": "indeterminate"}', refusal=None,
+                ),
+            )],
+            usage=None, id="mock-response", model="mock-model",
         )
 
     monkeypatch.setattr(
         providers, "OpenAI",
-        lambda **kwargs: SimpleNamespace(responses=SimpleNamespace(create=fake_create)),
+        lambda **kwargs: SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)),
+        ),
     )
     provider = providers.OpenAIProvider(
         name="mock", api_key="mock-key", model_name="mock-model",
         base_url="https://example.invalid/v1",
     )
     result = provider.infer("Synthetic test prompt", image_data_url)
-    content = requests[0]["input"][0]["content"]
-    assert content[0] == {"type": "input_text", "text": "Synthetic test prompt"}
+    content = requests[0]["messages"][0]["content"]
+    assert requests[0]["stream"] is False
+    assert content[0] == {"type": "text", "text": "Synthetic test prompt"}
     assert len(content) == (1 if image_data_url is None else 2)
     if image_data_url is not None:
-        assert content[1]["image_url"] == image_data_url
+        assert content[1]["image_url"] == {"url": image_data_url}
     assert result["raw_text"] == '{"prediction": "indeterminate"}'
     assert result["api_status"] == "completed"
     assert result["elapsed_seconds"] >= 0
@@ -265,7 +273,7 @@ def test_evaluate_rejects_bad_ids(tmp_path, case_ids):
 
 
 def test_two_model_batches(tmp_path, monkeypatch):
-    import run_one_sample as runner
+    import run as runner
     from dataset import DataLoader
     from evaluate import Evaluator
 
@@ -299,7 +307,7 @@ def test_two_model_batches(tmp_path, monkeypatch):
     ("completed", "Synthetic refusal", "refusal"),
 ])
 def test_batch_does_not_parse_failed_answers(tmp_path, monkeypatch, api_status, refusal, status):
-    import run_one_sample as runner
+    import run as runner
     from dataset import DataLoader
 
     monkeypatch.setattr(runner, "image_to_data_url", lambda path: "synthetic-image")
@@ -312,10 +320,94 @@ def test_batch_does_not_parse_failed_answers(tmp_path, monkeypatch, api_status, 
             }
 
     path = tmp_path / "mock.jsonl"
-    runner.run_batch([{"case_id": "a", "image_path": "synthetic.png"}], MockModel(), "prompt", path)
+    runner.run_batch([{"case_id": "a", "image_path": "synthetic.png"}], MockModel(), runner.RawPrompt, path)
     record = DataLoader("mock", path).load_data()[0]
     assert record["status"] == status
     assert record["prediction"] is None
+
+
+@pytest.mark.parametrize("enable_glm", [False, True])
+def test_main_saves_config_and_summary(tmp_path, monkeypatch, enable_glm):
+    import run as runner
+
+    class MockProvider:
+        def __init__(self, name, api_key, model_name, base_url, settings):
+            assert name != "openrouter" or enable_glm
+            self.model_name = model_name
+            self.base_url = base_url
+            self.settings = settings
+
+        def infer(self, prompt, image):
+            return {"api_status": "completed", "raw_text": '{"prediction":"indeterminate"}'}
+
+    output = tmp_path / "batch"
+    key_requests = []
+
+    def fake_getpass(message):
+        key_requests.append(message)
+        return "synthetic-key"
+
+    monkeypatch.setitem(runner.config, "output_path", str(output))
+    monkeypatch.setitem(runner.config["models"]["glm"], "enabled", enable_glm)
+    monkeypatch.setattr(runner, "getpass", fake_getpass)
+    monkeypatch.setattr(runner, "OpenAIProvider", MockProvider)
+    monkeypatch.setattr(runner, "GLMProvider", MockProvider)
+    monkeypatch.setattr(runner, "image_to_data_url", lambda path: "synthetic-image")
+    runner.main(dry_run=False)
+    saved_config = json.loads((output / "config.json").read_text())
+    summary = json.loads((output / "summary.json").read_text())
+    assert saved_config["prompt"] == "RawPrompt"
+    assert len(saved_config["prompt_sha256"]) == 64
+    expected_models = {"gpt", "glm"} if enable_glm else {"gpt"}
+    assert set(saved_config["models"]) == set(summary) == expected_models
+    assert len(key_requests) == len(expected_models)
+    assert saved_config["models"]["gpt"]["model"] == "gpt-6-astra"
+    assert all(result["n_abstained"] == 1 for result in summary.values())
+    assert "synthetic-key" not in (output / "config.json").read_text()
+    assert not (output / "prompt.txt").exists()
+
+
+def test_vision_smoke(tmp_path, monkeypatch):
+    import vision_smoke
+
+    calls = []
+    monkeypatch.setattr(vision_smoke, "ROOT", tmp_path)
+    monkeypatch.setattr(vision_smoke, "getpass", lambda message: "synthetic-key")
+    monkeypatch.setattr(vision_smoke, "make_test_image", lambda path: "123456")
+    monkeypatch.setattr(vision_smoke, "image_to_data_url", lambda path: "synthetic-image")
+
+    class MockProvider:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def infer(self, prompt, image):
+            assert "123456" not in prompt
+            assert image == "synthetic-image"
+            calls.append(prompt)
+            return {"api_status": "completed", "raw_text": "123456", "usage": None}
+
+    monkeypatch.setattr(vision_smoke, "OpenAIProvider", MockProvider)
+    vision_smoke.main()
+    assert not calls
+    vision_smoke.main(live=True)
+    result = json.loads((tmp_path / "outputs/vision-smoke.json").read_text())
+    assert result["vision_check_passed"] is True
+    assert len(calls) == 1
+    assert "synthetic-key" not in json.dumps(result)
+    with pytest.raises(FileExistsError):
+        vision_smoke.main(live=True)
+    assert len(calls) == 1
+
+
+def test_vision_test_image(tmp_path):
+    from vision_smoke import make_test_image
+
+    path = tmp_path / "test.png"
+    expected = make_test_image(path)
+    assert len(expected) == 6 and expected.isdigit()
+    with Image.open(path) as image:
+        assert image.format == "PNG"
+        assert image.size == (512, 256)
 
 
 if __name__ == "__main__":

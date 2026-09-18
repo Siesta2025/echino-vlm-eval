@@ -28,6 +28,9 @@ class Provider:
         self.model_name = model_name
         self.base_url = base_url
 
+    def __str__(self):
+        return f"{self.name} ({self.model_name})"
+
     def infer(self, text_prompt: str, image_data_url: str | None = None) -> dict:
         raise NotImplementedError("Each adapter implements its own API call")
 
@@ -39,62 +42,60 @@ class Provider:
             f.write(line)
 
 class OpenAIProvider(Provider):
-    def __init__(self, name: str, api_key: str, model_name: str, base_url: str):
+    """OpenAI-compatible Chat Completions; protocol does not imply official hosting."""
+
+    def __init__(self, name: str, api_key: str, model_name: str, base_url: str,
+                 settings: dict | None = None):
         super().__init__(name, api_key, model_name, base_url)
         self.client = OpenAI(
             api_key=api_key, base_url=base_url, timeout=30, max_retries=0,
         )
-        self.settings = {
-            "reasoning": {"effort": "low"},
-            "max_output_tokens": 2048,
-            "store": False,
-        }
+        # Start with the request shape verified by the local API smoke test.
+        self.settings = {"stream": False, **(settings or {})}
 
     def infer(self, text_prompt: str, image_data_url: str | None = None) -> dict:
-        content = [{"type": "input_text", "text": text_prompt}]
+        content = [{"type": "text", "text": text_prompt}]
         if image_data_url is not None:
             content.append({
-                "type": "input_image", "image_url": image_data_url,
-                "detail": "high",
+                "type": "image_url", "image_url": {"url": image_data_url},
             })
 
         start = perf_counter()
-        response = self.client.responses.create(
+        response = self.client.chat.completions.create(
             model=self.model_name,
-            input=[{"role": "user", "content": content}],
+            messages=[{"role": "user", "content": content}],
             **self.settings,
         )
         elapsed = perf_counter() - start
-        refusals = [
-            content.refusal
-            for item in response.output if item.type == "message"
-            for content in item.content if content.type == "refusal"
-        ]
+        choice = response.choices[0]
+        finish_reason = choice.finish_reason
         return {
-            "raw_text": response.output_text,
-            "refusal": "\n".join(refusals) or None,
+            "raw_text": choice.message.content or "",
+            "refusal": choice.message.refusal,
             "usage": response.usage.model_dump() if response.usage is not None else None,
             "elapsed_seconds": elapsed,
-            "api_status": response.status,
-            "incomplete_details": (
-                response.incomplete_details.model_dump()
-                if response.incomplete_details is not None else None
+            "api_status": (
+                "completed" if finish_reason == "stop"
+                else "incomplete" if finish_reason == "length" else finish_reason
             ),
-            "api_error": response.error.model_dump() if response.error is not None else None,
+            "finish_reason": finish_reason,
+            "incomplete_details": {"reason": "token_limit"} if finish_reason == "length" else None,
+            "api_error": None,
             "response_id": response.id,
             "model": response.model,
             "requested_model": self.model_name,
             "host": self.base_url,
-            "settings": {**self.settings, "image_detail": "high" if image_data_url is not None else None},
+            "settings": {**self.settings, "image_detail": None},
         }
 
 class GLMProvider(Provider):
-    def __init__(self, name: str, api_key: str, model_name: str, base_url: str):
+    def __init__(self, name: str, api_key: str, model_name: str, base_url: str,
+                 settings: dict | None = None):
         super().__init__(name, api_key, model_name, base_url)
         self.client = OpenAI(
             api_key=api_key, base_url=base_url, timeout=30, max_retries=0,
         )
-        self.settings = {"reasoning_effort": "low", "max_tokens": 2048}
+        self.settings = {"reasoning_effort": "low", "max_tokens": 2048, **(settings or {})}
 
     def infer(self, text_prompt: str, image_data_url: str | None = None) -> dict:
         content = [{"type": "text", "text": text_prompt}]
