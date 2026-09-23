@@ -11,7 +11,7 @@ class Evaluator:
         self.infer_result_path = Path(infer_result_path)
         self.eval_result_path = Path(eval_result_path)
 
-    def evaluate(self) -> dict:
+    def evaluate(self, overwrite: bool = False) -> dict:
         with self.infer_result_path.open("r", encoding="utf-8") as f:
             records = [json.loads(line) for line in f if line.strip()]
 
@@ -64,7 +64,8 @@ class Evaluator:
         }
 
         self.eval_result_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.eval_result_path.open("x", encoding="utf-8") as f:
+        mode = "w" if overwrite else "x"
+        with self.eval_result_path.open(mode, encoding="utf-8") as f:
             for result in results:
                 f.write(json.dumps(result, ensure_ascii=False) + "\n")
         return summary

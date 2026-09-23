@@ -1,0 +1,14 @@
+{
+  "name": "example",
+  "data_path": "data/manifests/example.jsonl",
+  "output_path": "outputs/example",
+  "models": ["gpt", "glm"],
+  "conditions": {
+    "direct": {
+      "prompt": "raw_v2"
+    },
+    "evidence": {
+      "prompt": "evidence_v1"
+    }
+  }
+}

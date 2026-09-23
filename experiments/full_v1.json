@@ -1,0 +1,45 @@
+{
+  "name": "full-v1-exploratory",
+  "data_path": "data/manifests/full-v1.jsonl",
+  "output_path": "outputs/full-v1",
+  "models": ["gpt", "glm"],
+  "conditions": {
+    "direct": {
+      "prompt": "raw_v2"
+    },
+    "structured": {
+      "prompt": "structured_v2"
+    },
+    "who_guided": {
+      "prompt": "who_guided_v2"
+    },
+    "evidence": {
+      "prompt": "evidence_v1"
+    },
+    "fewshot_evidence": {
+      "prompt": "fewshot_evidence_v1",
+      "demonstrations": "data/manifests/dev.jsonl",
+      "expected_demonstration_labels": [
+        "positive",
+        "negative",
+        "positive",
+        "negative"
+      ]
+    },
+    "skill_evidence": {
+      "prompt": "evidence_v1",
+      "skill": "skills/hepatic-echinococcosis-ultrasound/SKILL.md"
+    },
+    "skill_two_pass": {
+      "prompt": "evidence_v1",
+      "skill": "skills/hepatic-echinococcosis-ultrasound/SKILL.md",
+      "harness": "two_pass"
+    }
+  },
+  "artifacts": [
+    "data/manifests/test.jsonl",
+    "data/manifests/extension-v1.jsonl",
+    "data/pilot/audit.jsonl",
+    "data/extension-v1/audit.jsonl"
+  ]
+}

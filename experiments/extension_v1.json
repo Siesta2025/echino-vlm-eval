@@ -1,0 +1,11 @@
+{
+  "name": "extension-v1",
+  "data_path": "data/manifests/extension-v1.jsonl",
+  "output_path": "outputs/extension-v1",
+  "models": ["gpt", "glm"],
+  "conditions": {
+    "raw_v2": {},
+    "who_guided_v2": {}
+  },
+  "artifacts": ["data/extension-v1/audit.jsonl"]
+}

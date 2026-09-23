@@ -5,10 +5,12 @@ data/raw/
 .env.*
 !.env.example
 __pycache__/
+*.py[cod]
 AGENTS.md
 Log.md
 research/
 data/
 .venv/
 .pytest_cache/
-.env
+.coverage
+.DS_Store

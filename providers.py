@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from time import perf_counter
 from openai import OpenAI
+from zai import ZhipuAiClient
 from PIL import Image
 import base64
 
@@ -31,7 +32,8 @@ class Provider:
     def __str__(self):
         return f"{self.name} ({self.model_name})"
 
-    def infer(self, text_prompt: str, image_data_url: str | None = None) -> dict:
+    def infer(self, text_prompt: str,
+              image_data_url: str | list[str] | None = None) -> dict:
         raise NotImplementedError("Each adapter implements its own API call")
 
     def save(self, infer_result: dict, save_path: str | Path):
@@ -41,24 +43,29 @@ class Provider:
         with path.open("a", encoding="utf-8") as f:
             f.write(line)
 
+
 class OpenAIProvider(Provider):
     """OpenAI-compatible Chat Completions; protocol does not imply official hosting."""
 
     def __init__(self, name: str, api_key: str, model_name: str, base_url: str,
-                 settings: dict | None = None):
+                 settings: dict | None = None, timeout: float = 30):
         super().__init__(name, api_key, model_name, base_url)
+        self.timeout_seconds = timeout
         self.client = OpenAI(
-            api_key=api_key, base_url=base_url, timeout=30, max_retries=0,
+            api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0,
         )
         # Start with the request shape verified by the local API smoke test.
         self.settings = {"stream": False, **(settings or {})}
 
-    def infer(self, text_prompt: str, image_data_url: str | None = None) -> dict:
+    def infer(self, text_prompt: str,
+              image_data_url: str | list[str] | None = None) -> dict:
         content = [{"type": "text", "text": text_prompt}]
         if image_data_url is not None:
-            content.append({
-                "type": "image_url", "image_url": {"url": image_data_url},
-            })
+            image_urls = [image_data_url] if isinstance(image_data_url, str) else image_data_url
+            content.extend(
+                {"type": "image_url", "image_url": {"url": url}}
+                for url in image_urls
+            )
 
         start = perf_counter()
         response = self.client.chat.completions.create(
@@ -71,7 +78,7 @@ class OpenAIProvider(Provider):
         finish_reason = choice.finish_reason
         return {
             "raw_text": choice.message.content or "",
-            "refusal": choice.message.refusal,
+            "refusal": getattr(choice.message, "refusal", None),
             "usage": response.usage.model_dump() if response.usage is not None else None,
             "elapsed_seconds": elapsed,
             "api_status": (
@@ -86,29 +93,34 @@ class OpenAIProvider(Provider):
             "requested_model": self.model_name,
             "host": self.base_url,
             "settings": {**self.settings, "image_detail": None},
+            "transport_timeout_seconds": self.timeout_seconds,
         }
+
 
 class GLMProvider(Provider):
     def __init__(self, name: str, api_key: str, model_name: str, base_url: str,
-                 settings: dict | None = None):
+                 settings: dict | None = None, timeout: float = 30):
         super().__init__(name, api_key, model_name, base_url)
-        self.client = OpenAI(
-            api_key=api_key, base_url=base_url, timeout=30, max_retries=0,
+        self.timeout_seconds = timeout
+        self.client = ZhipuAiClient(
+            api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0,
         )
-        self.settings = {"reasoning_effort": "low", "max_tokens": 2048, **(settings or {})}
+        self.settings = {"stream": False, **(settings or {})}
 
-    def infer(self, text_prompt: str, image_data_url: str | None = None) -> dict:
+    def infer(self, text_prompt: str,
+              image_data_url: str | list[str] | None = None) -> dict:
         content = [{"type": "text", "text": text_prompt}]
         if image_data_url is not None:
-            content.append({
-                "type": "image_url", "image_url": {"url": image_data_url},
-            })
+            image_urls = [image_data_url] if isinstance(image_data_url, str) else image_data_url
+            content.extend(
+                {"type": "image_url", "image_url": {"url": url}}
+                for url in image_urls
+            )
 
         start = perf_counter()
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=[{"role": "user", "content": content}],
-            extra_body={"provider": {"require_parameters": True}},
             **self.settings,
         )
         elapsed = perf_counter() - start
@@ -123,16 +135,13 @@ class GLMProvider(Provider):
                 else "incomplete" if finish_reason == "length" else finish_reason
             ),
             "finish_reason": finish_reason,
-            "refusal": choice.message.refusal,
+            "refusal": getattr(choice.message, "refusal", None),
             "incomplete_details": {"reason": "max_tokens"} if finish_reason == "length" else None,
             "api_error": None,
             "response_id": response.id,
             "model": response.model,
             "requested_model": self.model_name,
             "host": self.base_url,
-            "upstream_provider": getattr(response, "provider", None),
-            "settings": {
-                **self.settings, "image_detail": None,
-                "provider": {"require_parameters": True},
-            },
+            "settings": {**self.settings, "image_detail": None},
+            "transport_timeout_seconds": self.timeout_seconds,
         }

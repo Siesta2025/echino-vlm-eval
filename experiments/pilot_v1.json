@@ -1,0 +1,11 @@
+{
+  "name": "pilot-v1",
+  "data_path": "data/manifests/test.jsonl",
+  "output_path": "outputs/test-batch",
+  "models": ["gpt", "glm"],
+  "conditions": {
+    "raw": {},
+    "structured": {},
+    "who_guided": {}
+  }
+}

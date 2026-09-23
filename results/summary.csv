@@ -1,0 +1,15 @@
+model,condition,correct,n_expected,n_classified,coverage,accuracy_on_classified,tp,tn,fp,fn,n_abstained,api_error,incomplete,parse_error,median_latency_seconds
+gpt,direct,21,30,30,1.000,0.700,8,13,9,0,0,0,0,0,6.2
+gpt,structured,20,30,30,1.000,0.667,8,12,10,0,0,0,0,0,5.5
+gpt,who_guided,18,30,30,1.000,0.600,8,10,12,0,0,0,0,0,7.1
+gpt,evidence,22,30,30,1.000,0.733,7,15,7,1,0,0,0,0,8.4
+gpt,fewshot_evidence,22,30,30,1.000,0.733,8,14,8,0,0,0,0,0,9.1
+gpt,skill_evidence,21,30,27,0.900,0.778,7,14,6,0,1,2,0,0,21.7
+gpt,skill_two_pass,19,30,27,0.900,0.704,4,15,4,4,3,0,0,0,71.2
+glm,direct,18,30,30,1.000,0.600,7,11,11,1,0,0,0,0,12.9
+glm,structured,22,30,30,1.000,0.733,6,16,6,2,0,0,0,0,12.9
+glm,who_guided,10,30,27,0.900,0.370,7,3,16,1,0,3,0,0,12.5
+glm,evidence,17,30,26,0.867,0.654,6,11,7,2,0,0,0,4,15.4
+glm,fewshot_evidence,18,30,27,0.900,0.667,6,12,7,2,0,0,1,2,14.0
+glm,skill_evidence,10,30,19,0.633,0.526,4,6,7,2,0,0,7,4,24.2
+glm,skill_two_pass,10,30,16,0.533,0.625,4,6,4,2,0,0,13,1,48.8

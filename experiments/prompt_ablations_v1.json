@@ -1,0 +1,18 @@
+{
+  "name": "prompt-ablations-v1",
+  "data_path": "data/manifests/test.jsonl",
+  "output_path": "outputs/prompt-ablations-v1",
+  "models": ["gpt", "glm"],
+  "conditions": {
+    "evidence_v1": {},
+    "fewshot_evidence_v1": {
+      "demonstrations": "data/manifests/dev.jsonl",
+      "expected_demonstration_labels": [
+        "positive",
+        "negative",
+        "positive",
+        "negative"
+      ]
+    }
+  }
+}
